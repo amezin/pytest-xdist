@@ -56,12 +56,18 @@ def worker_title(title):
 
 
 class WorkerInteractor:
+    ENDMARK = object()
+
     def __init__(self, config, channel):
         self.config = config
         self.workerid = config.workerinput.get("workerid", "?")
         self.testrunuid = config.workerinput["testrunuid"]
         self.log = Producer(f"worker-{self.workerid}", enabled=config.option.debug)
         self.channel = channel
+        self.pending = []
+        self.pending_lock = channel.gateway.execmodel.Lock()
+        self.pending_event = channel.gateway.execmodel.Event()
+        self.shutdown = False
         config.pluginmanager.register(self)
 
     def sendevent(self, name, **kwargs):
@@ -92,28 +98,55 @@ class WorkerInteractor:
     def pytest_collection(self, session):
         self.sendevent("collectionstart")
 
+    def handle_command(self, command):
+        with self.pending_lock:
+            if command is self.ENDMARK:
+                self.pending.clear()
+                self.handle_command_shutdown()
+            else:
+                name, kwargs = command
+                self.log("received command", name, kwargs)
+                handler = getattr(self, f"handle_command_{name}")
+                handler(**kwargs)
+
+            self.pending_event.set()
+
+    def handle_command_runtests(self, indices):
+        self.pending.extend(indices)
+        self.log("items to run:", self.pending)
+
+    def handle_command_runtests_all(self):
+        self.pending.extend(range(len(self.session.items)))
+        self.log("items to run:", self.pending)
+
+    def handle_command_shutdown(self):
+        self.shutdown = True
+
     @pytest.hookimpl
     def pytest_runtestloop(self, session):
+        self.channel.setcallback(self.handle_command, self.ENDMARK)
         self.log("entering main loop")
-        torun = []
-        while 1:
-            try:
-                name, kwargs = self.channel.receive()
-            except EOFError:
-                return True
-            self.log("received command", name, kwargs)
-            if name == "runtests":
-                torun.extend(kwargs["indices"])
-            elif name == "runtests_all":
-                torun.extend(range(len(session.items)))
-            self.log("items to run:", torun)
-            # only run if we have an item and a next item
-            while len(torun) >= 2:
+
+        shutdown = False
+        while not shutdown:
+            with self.pending_lock:
+                while len(self.pending) < 2 and not self.shutdown:
+                    # The entire loop body should be a simple Condition.wait()
+                    # But gevent has no Condition
+                    self.pending_lock.release()
+                    try:
+                        self.pending_event.wait()
+                    finally:
+                        self.pending_lock.acquire()
+                    self.pending_event.clear()
+
+                torun = self.pending[:2]
+                self.pending = self.pending[1:]
+                shutdown = self.shutdown and not self.pending
+
+            if torun:
                 self.run_one_test(torun)
-            if name == "shutdown":
-                if torun:
-                    self.run_one_test(torun)
-                break
+
         return True
 
     def run_one_test(self, torun):
