@@ -79,6 +79,7 @@ class WorkerInteractor:
         self.channel = channel
         self.torun = self._make_queue()
         self.nextitem_index: int | None | Literal[Marker.SHUTDOWN] = None
+        self.custom_command_results = self._make_queue()
         config.pluginmanager.register(self)
 
     def _make_queue(self) -> Any:
@@ -144,6 +145,8 @@ class WorkerInteractor:
             self.torun.put(Marker.SHUTDOWN)
         elif name == "steal":
             self.steal(kwargs["indices"])
+        elif name == "custom_command_result":
+            self.custom_command_results.put(kwargs["result"])
 
     def steal(self, indices: Sequence[int]) -> None:
         indices_set = set(indices)
@@ -278,6 +281,11 @@ class WorkerInteractor:
             nodeid=nodeid,
             location=location,
         )
+
+    @pytest.hookimpl
+    def pytest_xdist_run_command_in_controller(name: str, args: Any) -> Any:
+        self.sendevent("custom_command", name=name, args=args)
+        return self.user_command_results.get()
 
 
 def serialize_warning_message(

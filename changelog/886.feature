@@ -1,0 +1,1 @@
+Add `pytest_xdist_controller_handle_command` and `pytest_xdist_run_command_in_controller` hooks

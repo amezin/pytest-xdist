@@ -451,6 +451,14 @@ class DSession:
         )
         self.config.hook.pytest_runtest_logreport(report=rep)
 
+    def worker_custom_command(self, node: WorkerController, name: str, args: Any) -> Any:
+        result = self.config.hook.pytest_xdist_controller_handle_command(name=name, args=args)
+        node.send_custom_command_result(result)
+
+    @pytest.hookimpl
+    def pytest_xdist_run_command_in_controller(self, name: str, args: Any) -> Any:
+        return self.config.hook.pytest_xdist_controller_handle_command(name=name, args=args)
+
 
 class WorkerStatus(Enum):
     """Status of each worker during creation/collection."""

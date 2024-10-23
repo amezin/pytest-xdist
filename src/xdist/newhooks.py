@@ -127,3 +127,25 @@ def pytest_handlecrashitem(
 
     .. versionadded:: 2.2.1
     """
+
+
+@pytest.hookspec(firstresult=True)
+def pytest_xdist_controller_handle_command(name: str, args: Any) -> Any:
+    """
+    Handle a user-defined command in the controller process.
+
+    This hook will be called in the controller process when
+    `pytest_xdist_run_command_in_controller()` is called in a worker or controller
+    process, the return value will be passed back to the caller.
+
+    .. versionadded:: 3.7.0
+    """
+
+
+@pytest.hookspec(firstresult=True)
+def pytest_xdist_run_command_in_controller(name: str, args: Any) -> Any:
+    """
+    Run a user-defined command in the controller process.
+
+    .. versionadded:: 3.7.0
+    """
